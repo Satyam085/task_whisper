@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -72,42 +71,24 @@ func main() {
 		log.Fatalf("❌ Bot init error: %v", err)
 	}
 
-	// Auto-register webhook if configured
-	if cfg.AutoRegisterWebhook {
-		if err := handler.RegisterWebhook(); err != nil {
-			log.Printf("⚠️ Webhook registration failed: %v", err)
-		}
-	}
-
 	// Start daily summary scheduler
 	sched := scheduler.NewScheduler(tasksSvc, listMapping, handler, cfg)
 	sched.Start()
 	log.Println("✅ Daily summary scheduler started")
 
-	// Set up HTTP server
-	mux := http.NewServeMux()
-	mux.HandleFunc("/webhook", handler.HandleWebhook)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
-	})
-
-	addr := fmt.Sprintf(":%s", cfg.Port)
-	server := &http.Server{Addr: addr, Handler: mux}
-
-	// Graceful shutdown
+	// Graceful shutdown via signal
+	stopCh := make(chan struct{})
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 		log.Println("\n⏳ Shutting down...")
-		server.Close()
+		close(stopCh)
 	}()
 
-	log.Printf("🚀 TaskWhisperer listening on %s", addr)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("❌ Server error: %v", err)
-	}
+	// Start long-polling (blocks until stopCh is closed)
+	log.Println("🚀 TaskWhisperer started (polling mode)")
+	handler.StartPolling(stopCh)
 
 	log.Println("👋 TaskWhisperer stopped. Goodbye!")
 }

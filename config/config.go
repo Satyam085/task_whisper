@@ -29,11 +29,9 @@ type Config struct {
 	GoogleTokenPath       string
 
 	// App
-	Port               string
-	WebhookURL         string
-	AutoRegisterWebhook bool
-	Timezone           string
-	SummaryTime        string
+	PollingInterval int // seconds between polls (default 3)
+	Timezone        string
+	SummaryTime     string
 
 	// Optional
 	SQLitePath string
@@ -94,9 +92,12 @@ func Load() (*Config, error) {
 	// --- Optional with defaults ---
 	cfg.GoogleCredentialsPath = getEnvDefault("GOOGLE_CREDENTIALS_PATH", "./credentials.json")
 	cfg.GoogleTokenPath = getEnvDefault("GOOGLE_TOKEN_PATH", "./token.json")
-	cfg.Port = getEnvDefault("PORT", "8080")
-	cfg.WebhookURL = os.Getenv("WEBHOOK_URL")
-	cfg.AutoRegisterWebhook = os.Getenv("AUTO_REGISTER_WEBHOOK") == "true"
+	cfg.PollingInterval = 3
+	if val := os.Getenv("POLLING_INTERVAL"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+			cfg.PollingInterval = n
+		}
+	}
 	cfg.Timezone = getEnvDefault("TIMEZONE", "Asia/Kolkata")
 	cfg.SummaryTime = getEnvDefault("SUMMARY_TIME", "08:00")
 	cfg.SQLitePath = getEnvDefault("SQLITE_PATH", "./tasks.db")

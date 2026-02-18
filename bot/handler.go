@@ -2,11 +2,8 @@ package bot
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
@@ -18,7 +15,7 @@ import (
 	"taskwhisperer/tasks"
 )
 
-// Handler processes incoming Telegram webhook requests.
+// Handler processes incoming Telegram messages via long polling.
 type Handler struct {
 	bot    *tgbotapi.BotAPI
 	gemini *gemini.Client
@@ -47,69 +44,41 @@ func NewHandler(cfg *config.Config, gem *gemini.Client, taskSvc *tasks.Service, 
 	}, nil
 }
 
-// GetBot returns the underlying Telegram Bot API instance.
-func (h *Handler) GetBot() *tgbotapi.BotAPI {
-	return h.bot
-}
-
-// RegisterWebhook sets the Telegram webhook URL.
-func (h *Handler) RegisterWebhook() error {
-	if h.cfg.WebhookURL == "" {
-		return fmt.Errorf("WEBHOOK_URL is not configured")
+// StartPolling begins long-polling for Telegram updates.
+// This runs in the foreground and blocks until stopCh is closed.
+func (h *Handler) StartPolling(stopCh <-chan struct{}) {
+	// Remove any existing webhook so polling works
+	removeWebhook := tgbotapi.DeleteWebhookConfig{DropPendingUpdates: false}
+	if _, err := h.bot.Request(removeWebhook); err != nil {
+		log.Printf("⚠️ Failed to remove webhook (may not exist): %v", err)
 	}
 
-	wh, err := tgbotapi.NewWebhook(h.cfg.WebhookURL)
-	if err != nil {
-		return fmt.Errorf("failed to create webhook: %w", err)
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = h.cfg.PollingInterval
+
+	updates := h.bot.GetUpdatesChan(u)
+
+	log.Printf("📡 Polling for updates every %ds...", h.cfg.PollingInterval)
+
+	for {
+		select {
+		case <-stopCh:
+			h.bot.StopReceivingUpdates()
+			log.Println("📡 Polling stopped")
+			return
+		case update := <-updates:
+			if update.Message == nil || update.Message.Text == "" {
+				continue
+			}
+
+			// Whitelist check — silently ignore unauthorized users
+			if update.Message.From.ID != h.cfg.AllowedUserID {
+				continue
+			}
+
+			h.processMessage(update.Message)
+		}
 	}
-
-	_, err = h.bot.Request(wh)
-	if err != nil {
-		return fmt.Errorf("failed to set webhook: %w", err)
-	}
-
-	log.Printf("🔗 Webhook registered: %s", h.cfg.WebhookURL)
-	return nil
-}
-
-// HandleWebhook is the HTTP handler for Telegram webhook updates.
-func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Printf("❌ Error reading request body: %v", err)
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	var update tgbotapi.Update
-	if err := json.Unmarshal(body, &update); err != nil {
-		log.Printf("❌ Error parsing update: %v", err)
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-
-	// Only process text messages
-	if update.Message == nil || update.Message.Text == "" {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	// Whitelist check — silently ignore unauthorized users
-	if update.Message.From.ID != h.cfg.AllowedUserID {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	// Process asynchronously so we don't block the webhook response
-	go h.processMessage(update.Message)
-
-	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) processMessage(msg *tgbotapi.Message) {
