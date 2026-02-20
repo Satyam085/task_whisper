@@ -15,8 +15,8 @@ type Config struct {
 	AllowedUserID int64
 	ChatID        int64
 
-	// Gemini
-	GeminiAPIKey string
+	// OpenRouter
+	OpenRouterAPIKey string
 
 	// Google Tasks List IDs
 	GTListPersonal string
@@ -64,9 +64,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("CHAT_ID: %w", err)
 	}
 
-	cfg.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
-	if cfg.GeminiAPIKey == "" {
-		return nil, fmt.Errorf("GEMINI_API_KEY is required")
+	cfg.OpenRouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
+	if cfg.OpenRouterAPIKey == "" {
+		return nil, fmt.Errorf("OPENROUTER_API_KEY is required")
 	}
 
 	cfg.GTListPersonal = os.Getenv("GTASKS_LIST_PERSONAL")

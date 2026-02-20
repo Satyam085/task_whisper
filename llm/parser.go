@@ -1,17 +1,17 @@
-package gemini
+package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
-
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
 )
 
-// Task represents a single task extracted by Gemini from the user's message.
+// Task represents a single task extracted by the LLM from the user's message.
 type Task struct {
 	Title    string `json:"title"`
 	Notes    string `json:"notes,omitempty"`
@@ -20,39 +20,53 @@ type Task struct {
 	Priority string `json:"priority"`           // low, normal, high
 }
 
-// GeminiResponse wraps the JSON response from Gemini.
-type GeminiResponse struct {
+// LLMResponse wraps the expected JSON response from the LLM.
+type LLMResponse struct {
 	Tasks []Task `json:"tasks"`
 }
 
-// Client wraps the Gemini generative AI client.
+// OpenRouterRequest models the request payload for OpenRouter.
+type OpenRouterRequest struct {
+	Model          string          `json:"model"`
+	Messages       []Message       `json:"messages"`
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+}
+
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ResponseFormat struct {
+	Type string `json:"type"`
+}
+
+// OpenRouterResponse models the response payload from OpenRouter.
+type OpenRouterResponse struct {
+	Choices []Choice `json:"choices"`
+}
+
+type Choice struct {
+	Message Message `json:"message"`
+}
+
+// Client wraps the OpenRouter HTTP client.
 type Client struct {
-	client *genai.Client
-	model  *genai.GenerativeModel
+	apiKey     string
+	httpClient *http.Client
 }
 
-// NewClient creates a new Gemini client configured for task parsing.
-func NewClient(ctx context.Context, apiKey string) (*Client, error) {
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gemini client: %w", err)
-	}
-
-	model := client.GenerativeModel("gemini-2.5-flash")
-	model.ResponseMIMEType = "application/json"
-
+// NewClient creates a new OpenRouter client configured for task parsing.
+func NewClient(apiKey string) *Client {
 	return &Client{
-		client: client,
-		model:  model,
-	}, nil
+		apiKey: apiKey,
+		httpClient: &http.Client{
+			Timeout: 60 * time.Second,
+		},
+	}
 }
 
-// Close releases the Gemini client resources.
-func (c *Client) Close() {
-	c.client.Close()
-}
-
-// ParseTasks sends a user message to Gemini and returns structured tasks.
+// ParseTasks sends a user message to OpenRouter and returns structured tasks.
 func (c *Client) ParseTasks(ctx context.Context, message, timezone string) ([]Task, error) {
 	loc, err := time.LoadLocation(timezone)
 	if err != nil {
@@ -63,25 +77,64 @@ func (c *Client) ParseTasks(ctx context.Context, message, timezone string) ([]Ta
 	weekday := now.Weekday().String()
 
 	systemPrompt := buildSystemPrompt(today, weekday, timezone)
-	c.model.SystemInstruction = genai.NewUserContent(genai.Text(systemPrompt))
 
-	resp, err := c.model.GenerateContent(ctx, genai.Text(message))
+	reqPayload := OpenRouterRequest{
+		Model: "openrouter/free",
+		Messages: []Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: message},
+		},
+		ResponseFormat: &ResponseFormat{Type: "json_object"},
+	}
+
+	reqBody, err := json.Marshal(reqPayload)
 	if err != nil {
-		return nil, fmt.Errorf("gemini generate failed: %w", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("gemini returned empty response")
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	text, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
-	if !ok {
-		return nil, fmt.Errorf("unexpected response part type")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("openrouter request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("openrouter returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var result GeminiResponse
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse gemini JSON: %w (raw: %s)", err, string(text))
+	var openRouterResp OpenRouterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&openRouterResp); err != nil {
+		return nil, fmt.Errorf("failed to decode openrouter response: %w", err)
+	}
+
+	if len(openRouterResp.Choices) == 0 || openRouterResp.Choices[0].Message.Content == "" {
+		return nil, fmt.Errorf("openrouter returned empty response")
+	}
+
+	content := openRouterResp.Choices[0].Message.Content
+	// Remove markdown code blocks if the model wrapped the JSON
+	content = strings.TrimSpace(content)
+	if strings.HasPrefix(content, "```json") {
+		content = strings.TrimPrefix(content, "```json")
+		content = strings.TrimSuffix(content, "```")
+	} else if strings.HasPrefix(content, "```") {
+		content = strings.TrimPrefix(content, "```")
+		content = strings.TrimSuffix(content, "```")
+	}
+	content = strings.TrimSpace(content)
+
+	var result LLMResponse
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse llm JSON: %w (raw: %s)", err, content)
 	}
 
 	// Normalize categories

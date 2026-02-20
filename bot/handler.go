@@ -10,7 +10,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"taskwhisperer/config"
-	"taskwhisperer/gemini"
+	"taskwhisperer/llm"
 	"taskwhisperer/store"
 	"taskwhisperer/tasks"
 )
@@ -18,7 +18,7 @@ import (
 // Handler processes incoming Telegram messages via long polling.
 type Handler struct {
 	bot    *tgbotapi.BotAPI
-	gemini *gemini.Client
+	llm    *llm.Client
 	tasks  *tasks.Service
 	lists  *tasks.ListMapping
 	store  *store.Store
@@ -29,7 +29,7 @@ type Handler struct {
 }
 
 // NewHandler creates a new Telegram bot handler with all dependencies.
-func NewHandler(cfg *config.Config, gem *gemini.Client, taskSvc *tasks.Service, lists *tasks.ListMapping, st *store.Store) (*Handler, error) {
+func NewHandler(cfg *config.Config, llmClient *llm.Client, taskSvc *tasks.Service, lists *tasks.ListMapping, st *store.Store) (*Handler, error) {
 	bot, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create telegram bot: %w", err)
@@ -39,7 +39,7 @@ func NewHandler(cfg *config.Config, gem *gemini.Client, taskSvc *tasks.Service, 
 
 	return &Handler{
 		bot:    bot,
-		gemini: gem,
+		llm:    llmClient,
 		tasks:  taskSvc,
 		lists:  lists,
 		store:  st,
@@ -127,10 +127,10 @@ Commands:
 		}
 	}
 
-	// Parse with Gemini
-	parsedTasks, err := h.gemini.ParseTasks(ctx, msg.Text, h.cfg.Timezone)
+	// Parse with OpenRouter
+	parsedTasks, err := h.llm.ParseTasks(ctx, msg.Text, h.cfg.Timezone)
 	if err != nil {
-		log.Printf("❌ Gemini parse error: %v", err)
+		log.Printf("❌ LLM parse error: %v", err)
 		h.sendMessage(msg.Chat.ID, "❌ Sorry, I couldn't understand that. Try rephrasing?")
 		return
 	}
@@ -179,7 +179,7 @@ func (h *Handler) sendMessage(chatID int64, text string) {
 	}
 }
 
-func formatTaskLine(t gemini.Task) string {
+func formatTaskLine(t llm.Task) string {
 	line := fmt.Sprintf("• %s → %s", t.Title, tasks.CategoryName(t.Category))
 
 	if t.DueDate != "" {

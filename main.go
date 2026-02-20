@@ -10,7 +10,7 @@ import (
 
 	"taskwhisperer/bot"
 	"taskwhisperer/config"
-	"taskwhisperer/gemini"
+	"taskwhisperer/llm"
 	"taskwhisperer/scheduler"
 	"taskwhisperer/store"
 	"taskwhisperer/tasks"
@@ -39,13 +39,9 @@ func main() {
 
 	ctx := context.Background()
 
-	// Initialize Gemini client
-	geminiClient, err := gemini.NewClient(ctx, cfg.GeminiAPIKey)
-	if err != nil {
-		log.Fatalf("❌ Gemini init error: %v", err)
-	}
-	defer geminiClient.Close()
-	log.Println("✅ Gemini client initialized")
+	// Initialize LLM client
+	llmClient := llm.NewClient(cfg.OpenRouterAPIKey)
+	log.Println("✅ LLM client initialized")
 
 	// Initialize Google Tasks service
 	tasksSvc, err := tasks.NewService(ctx, cfg.GoogleCredentialsPath, cfg.GoogleTokenPath)
@@ -66,7 +62,7 @@ func main() {
 	log.Println("✅ SQLite store initialized")
 
 	// Initialize Telegram bot handler
-	handler, err := bot.NewHandler(cfg, geminiClient, tasksSvc, listMapping, taskStore)
+	handler, err := bot.NewHandler(cfg, llmClient, tasksSvc, listMapping, taskStore)
 	if err != nil {
 		log.Fatalf("❌ Bot init error: %v", err)
 	}
