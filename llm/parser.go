@@ -92,35 +92,56 @@ func (c *Client) ParseTasks(ctx context.Context, message, timezone string) ([]Ta
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	var content string
+	var lastErr error
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(reqBody))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("openrouter request failed (attempt %d): %w", attempt, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("openrouter returned status %d (attempt %d): %s", resp.StatusCode, attempt, string(respBody))
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		var openRouterResp OpenRouterResponse
+		if err := json.NewDecoder(resp.Body).Decode(&openRouterResp); err != nil {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("failed to decode openrouter response (attempt %d): %w", attempt, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		resp.Body.Close()
+
+		if len(openRouterResp.Choices) == 0 || openRouterResp.Choices[0].Message.Content == "" {
+			lastErr = fmt.Errorf("openrouter returned empty response")
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		content = openRouterResp.Choices[0].Message.Content
+		lastErr = nil
+		break
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("openrouter request failed: %w", err)
+	if lastErr != nil {
+		return nil, lastErr
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("openrouter returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var openRouterResp OpenRouterResponse
-	if err := json.NewDecoder(resp.Body).Decode(&openRouterResp); err != nil {
-		return nil, fmt.Errorf("failed to decode openrouter response: %w", err)
-	}
-
-	if len(openRouterResp.Choices) == 0 || openRouterResp.Choices[0].Message.Content == "" {
-		return nil, fmt.Errorf("openrouter returned empty response")
-	}
-
-	content := openRouterResp.Choices[0].Message.Content
 	// Remove markdown code blocks if the model wrapped the JSON
 	content = strings.TrimSpace(content)
 	if strings.HasPrefix(content, "```json") {

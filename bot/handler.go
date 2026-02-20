@@ -131,7 +131,11 @@ Commands:
 	parsedTasks, err := h.llm.ParseTasks(ctx, msg.Text, h.cfg.Timezone)
 	if err != nil {
 		log.Printf("❌ LLM parse error: %v", err)
-		h.sendMessage(msg.Chat.ID, "❌ Sorry, I couldn't understand that. Try rephrasing?")
+		if strings.Contains(err.Error(), "openrouter") {
+			h.sendMessage(msg.Chat.ID, "❌ The AI request failed after 3 retries. Please try again later.")
+		} else {
+			h.sendMessage(msg.Chat.ID, "❌ Sorry, I couldn't understand that. Try rephrasing?")
+		}
 		return
 	}
 
