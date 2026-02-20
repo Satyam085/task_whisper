@@ -23,6 +23,9 @@ type Handler struct {
 	lists  *tasks.ListMapping
 	store  *store.Store
 	cfg    *config.Config
+	
+	// summaryGen is a callback to generate the daily summary on-demand Let's use a simple function type
+	summaryGen func() string
 }
 
 // NewHandler creates a new Telegram bot handler with all dependencies.
@@ -42,6 +45,12 @@ func NewHandler(cfg *config.Config, gem *gemini.Client, taskSvc *tasks.Service, 
 		store:  st,
 		cfg:    cfg,
 	}, nil
+}
+
+// SetSummaryGenerator allows injecting the summary generation logic
+// without creating a circular dependency between bot and scheduler.
+func (h *Handler) SetSummaryGenerator(gen func() string) {
+	h.summaryGen = gen
 }
 
 // StartPolling begins long-polling for Telegram updates.
@@ -86,6 +95,37 @@ func (h *Handler) processMessage(msg *tgbotapi.Message) {
 	defer cancel()
 
 	log.Printf("📨 Received: %q", msg.Text)
+
+	// Handle commands
+	if msg.IsCommand() {
+		switch msg.Command() {
+		case "start", "help":
+			helpText := `🤖 *TaskWhisperer Rules*
+
+Just message me naturally:
+• "buy milk tomorrow"
+• "dentist appt on friday 3pm"
+• "finish the quarterly report EOD"
+
+Commands:
+/today - Get your daily summary right now
+/help  - Show this message`
+			h.sendMessage(msg.Chat.ID, helpText)
+			return
+		case "today":
+			if h.summaryGen != nil {
+				h.sendMessage(msg.Chat.ID, "⏳ Generating summary...")
+				summary := h.summaryGen()
+				h.sendMessage(msg.Chat.ID, summary)
+			} else {
+				h.sendMessage(msg.Chat.ID, "❌ Summary generator not configured.")
+			}
+			return
+		default:
+			h.sendMessage(msg.Chat.ID, "🤔 Unknown command. Type /help to see what I can do.")
+			return
+		}
+	}
 
 	// Parse with Gemini
 	parsedTasks, err := h.gemini.ParseTasks(ctx, msg.Text, h.cfg.Timezone)

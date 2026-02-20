@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"taskwhisperer/config"
 	"taskwhisperer/tasks"
 )
@@ -76,6 +78,13 @@ func (s *Scheduler) nextSummaryTime() time.Time {
 }
 
 func (s *Scheduler) sendDailySummary() {
+	text := s.GenerateSummary()
+	s.sender.SendMessage(s.cfg.ChatID, text)
+	log.Println("✅ Daily summary sent")
+}
+
+// GenerateSummary explicitly runs and generates the text of the daily summary.
+func (s *Scheduler) GenerateSummary() string {
 	loc, err := time.LoadLocation(s.cfg.Timezone)
 	if err != nil {
 		loc = time.UTC
@@ -86,7 +95,6 @@ func (s *Scheduler) sendDailySummary() {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("☀️ Good morning! Here's your %s briefing:\n\n", now.Format("Jan 2")))
 
-	// Today's tasks across all lists
 	categories := []struct {
 		name string
 		cat  string
@@ -100,35 +108,57 @@ func (s *Scheduler) sendDailySummary() {
 	var todayTasks []string
 	var upcomingTasks []string
 
-	for _, c := range categories {
-		listID := s.lists.GetListID(c.cat)
+	var eg errgroup.Group
+	catTodayTasks := make([][]string, len(categories))
+	catUpcomingTasks := make([][]string, len(categories))
 
-		// Today's tasks
-		dayTasks, err := s.tasksSvc.GetTasksDueOn(listID, today)
-		if err != nil {
-			log.Printf("⚠️ Error fetching %s tasks for today: %v", c.name, err)
-			continue
-		}
-		for _, t := range dayTasks {
-			if t.Status == "needsAction" {
-				todayTasks = append(todayTasks, fmt.Sprintf("  ☐ %s — %s", t.Title, c.name))
-			}
-		}
+	for i, c := range categories {
+		idx := i
+		cat := c
+		
+		eg.Go(func() error {
+			listID := s.lists.GetListID(cat.cat)
 
-		// Upcoming (next 3 days, excluding today)
-		tomorrow := today.Add(24 * time.Hour)
-		upcoming, err := s.tasksSvc.GetUpcomingTasks(listID, tomorrow, 3)
-		if err != nil {
-			log.Printf("⚠️ Error fetching upcoming %s tasks: %v", c.name, err)
-			continue
-		}
-		for _, t := range upcoming {
-			dateLabel := t.DueDate
-			if due, err := time.Parse("2006-01-02", t.DueDate); err == nil {
-				dateLabel = due.Format("Jan 2")
+			// Today's tasks
+			dayTasks, err := s.tasksSvc.GetTasksDueOn(listID, today)
+			if err != nil {
+				log.Printf("⚠️ Error fetching %s tasks for today: %v", cat.name, err)
+			} else {
+				var tTasks []string
+				for _, t := range dayTasks {
+					if t.Status == "needsAction" {
+						tTasks = append(tTasks, fmt.Sprintf("  ☐ %s — %s", t.Title, cat.name))
+					}
+				}
+				catTodayTasks[idx] = tTasks
 			}
-			upcomingTasks = append(upcomingTasks, fmt.Sprintf("  %s — %s — %s", dateLabel, t.Title, c.name))
-		}
+
+			// Upcoming (next 3 days, excluding today)
+			tomorrow := today.Add(24 * time.Hour)
+			upcoming, err := s.tasksSvc.GetUpcomingTasks(listID, tomorrow, 3)
+			if err != nil {
+				log.Printf("⚠️ Error fetching upcoming %s tasks: %v", cat.name, err)
+			} else {
+				var uTasks []string
+				for _, t := range upcoming {
+					dateLabel := t.DueDate
+					if due, err := time.Parse("2006-01-02", t.DueDate); err == nil {
+						dateLabel = due.Format("Jan 2")
+					}
+					uTasks = append(uTasks, fmt.Sprintf("  %s — %s — %s", dateLabel, t.Title, cat.name))
+				}
+				catUpcomingTasks[idx] = uTasks
+			}
+			
+			return nil
+		})
+	}
+	
+	_ = eg.Wait()
+	
+	for i := range categories {
+		todayTasks = append(todayTasks, catTodayTasks[i]...)
+		upcomingTasks = append(upcomingTasks, catUpcomingTasks[i]...)
 	}
 
 	if len(todayTasks) > 0 {
@@ -149,8 +179,6 @@ func (s *Scheduler) sendDailySummary() {
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("Have a great day! 🚀")
-
-	s.sender.SendMessage(s.cfg.ChatID, sb.String())
-	log.Println("✅ Daily summary sent")
+	sb.WriteString("Have a great day! \U0001f680")
+	return sb.String()
 }

@@ -76,6 +76,11 @@ func main() {
 	sched.Start()
 	log.Println("✅ Daily summary scheduler started")
 
+	// Wire up the summary generator to the bot handler for the /today command
+	handler.SetSummaryGenerator(func() string {
+		return sched.GenerateSummary()
+	})
+
 	// Graceful shutdown via signal
 	stopCh := make(chan struct{})
 	go func() {
