@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"taskwhisperer/config"
+	"taskwhisperer/store"
 	"taskwhisperer/tasks"
 )
 
@@ -17,26 +18,27 @@ type MessageSender interface {
 	SendMessage(chatID int64, text string)
 }
 
-// Scheduler handles the daily summary goroutine.
+// Scheduler handles the daily summary and timezone-aware reminders.
 type Scheduler struct {
 	tasksSvc *tasks.Service
 	lists    *tasks.ListMapping
 	sender   MessageSender
+	store    *store.Store
 	cfg      *config.Config
 }
 
-// NewScheduler creates a new daily summary scheduler.
-func NewScheduler(tasksSvc *tasks.Service, lists *tasks.ListMapping, sender MessageSender, cfg *config.Config) *Scheduler {
+// NewScheduler creates a new daily summary and reminders scheduler.
+func NewScheduler(tasksSvc *tasks.Service, lists *tasks.ListMapping, sender MessageSender, st *store.Store, cfg *config.Config) *Scheduler {
 	return &Scheduler{
 		tasksSvc: tasksSvc,
 		lists:    lists,
 		sender:   sender,
+		store:    st,
 		cfg:      cfg,
 	}
 }
 
-// Start begins the daily summary scheduler in a goroutine.
-// It calculates the next summary time and sleeps until then.
+// Start begins the daily summary and reminder scheduler in goroutines.
 func (s *Scheduler) Start() {
 	go func() {
 		for {
@@ -50,6 +52,39 @@ func (s *Scheduler) Start() {
 			s.sendDailySummary()
 		}
 	}()
+	
+	go s.runRemindersLoop()
+}
+
+func (s *Scheduler) runRemindersLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		s.checkReminders()
+	}
+}
+
+func (s *Scheduler) checkReminders() {
+	loc, err := time.LoadLocation(s.cfg.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	now := time.Now().In(loc)
+	dateStr := now.Format("2006-01-02")
+	timeStr := now.Format("15:04") // HH:MM
+	
+	dueTasks, err := s.store.GetTasksDueAt(dateStr, timeStr)
+	if err != nil || len(dueTasks) == 0 {
+		return
+	}
+	
+	for _, t := range dueTasks {
+		msg := fmt.Sprintf("⏰ *Reminder*: %s\n_Category: %s_", t.Title, tasks.CategoryName(t.Category))
+		s.sender.SendMessage(s.cfg.ChatID, msg)
+		_ = s.store.MarkTaskReminded(t.ID)
+		log.Printf("⏰ Sent timezone-aware reminder for task: %q", t.Title)
+	}
 }
 
 func (s *Scheduler) nextSummaryTime() time.Time {

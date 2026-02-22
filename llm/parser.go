@@ -13,11 +13,14 @@ import (
 
 // Task represents a single task extracted by the LLM from the user's message.
 type Task struct {
-	Title    string `json:"title"`
-	Notes    string `json:"notes,omitempty"`
-	DueDate  string `json:"due_date,omitempty"` // YYYY-MM-DD
-	Category string `json:"category"`           // personal, office, shopping, others
-	Priority string `json:"priority"`           // low, normal, high
+	Title      string   `json:"title"`
+	Notes      string   `json:"notes,omitempty"`
+	DueDate    string   `json:"due_date,omitempty"` // YYYY-MM-DD
+	DueTime    string   `json:"due_time,omitempty"` // HH:MM (24h)
+	Recurrence string   `json:"recurrence,omitempty"` // daily, weekly, monthly, yearly
+	Category   string   `json:"category"`             // personal, office, shopping, others
+	Priority   string   `json:"priority"`             // low, normal, high
+	Subtasks   []string `json:"subtasks,omitempty"`   // List of subtasks for a project
 }
 
 // LLMResponse wraps the expected JSON response from the LLM.
@@ -199,6 +202,7 @@ DATE RULES:
 - Resolve all relative dates ("tomorrow", "next Friday", "in 3 days") to YYYY-MM-DD
 - If no date mentioned, omit due_date entirely
 - "EOD" / "end of day" = same day, no specific time needed
+- If the user specifies a time (e.g., "3pm", "14:00"), extract it into due_time in HH:MM format (24h clock). Otherwise omit due_time.
 
 OUTPUT FORMAT:
 {
@@ -207,17 +211,21 @@ OUTPUT FORMAT:
       "title": "Short actionable title (max 60 chars)",
       "notes": "Any extra context, quantity, details, or full original phrasing",
       "due_date": "YYYY-MM-DD",
+      "due_time": "HH:MM",
+      "recurrence": "daily|weekly|monthly|yearly",
       "category": "personal|office|shopping|others",
-      "priority": "low|normal|high"
+      "priority": "low|normal|high",
+      "subtasks": ["subtask 1", "subtask 2"]
     }
   ]
 }
 
 RULES:
-- Shopping lists: split each item into its own task object
+- Shopping lists: split each item into its own task object UNLESS it's explicitly phrased as a single parent task with steps (e.g., "Plan trip: 1. book flight 2. reserve hotel" -> parent "Plan trip", subtasks "book flight", "reserve hotel")
 - Extract multiple tasks from a single message
 - title should be action-oriented: "Call dentist" not "dentist"
 - If priority unclear, default to "normal"
+- If the task is explicitly repeating (e.g. "every tuesday", "monthly"), set recurrence to "daily", "weekly", "monthly", or "yearly". Otherwise omit it.
 - High priority keywords: urgent, ASAP, important, critical, must`, today, weekday, timezone)
 }
 

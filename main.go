@@ -67,10 +67,10 @@ func main() {
 		log.Fatalf("❌ Bot init error: %v", err)
 	}
 
-	// Start daily summary scheduler
-	sched := scheduler.NewScheduler(tasksSvc, listMapping, handler, cfg)
+	// Start daily summary and reminders scheduler
+	sched := scheduler.NewScheduler(tasksSvc, listMapping, handler, taskStore, cfg)
 	sched.Start()
-	log.Println("✅ Daily summary scheduler started")
+	log.Println("✅ Daily summary and reminders scheduler started")
 
 	// Wire up the summary generator to the bot handler for the /today command
 	handler.SetSummaryGenerator(func() string {

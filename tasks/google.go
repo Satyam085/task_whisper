@@ -44,8 +44,8 @@ func NewService(ctx context.Context, credPath, tokenPath string) (*Service, erro
 	return &Service{svc: svc}, nil
 }
 
-// InsertTask adds a single task to the specified Google Tasks list.
-func (s *Service) InsertTask(listID, title, notes, dueDate string) error {
+// InsertTask adds a single task to the specified Google Tasks list and returns it.
+func (s *Service) InsertTask(listID, title, notes, dueDate, parent string) (*gtasks.Task, error) {
 	task := &gtasks.Task{
 		Title: title,
 		Notes: notes,
@@ -59,9 +59,52 @@ func (s *Service) InsertTask(listID, title, notes, dueDate string) error {
 		}
 	}
 
-	_, err := s.svc.Tasks.Insert(listID, task).Do()
+	call := s.svc.Tasks.Insert(listID, task)
+	if parent != "" {
+		call = call.Parent(parent)
+	}
+
+	created, err := call.Do()
 	if err != nil {
-		return fmt.Errorf("failed to insert task %q: %w", title, err)
+		return nil, fmt.Errorf("failed to insert task %q: %w", title, err)
+	}
+	return created, nil
+}
+
+// CompleteTask marks a specific task as completed in Google Tasks.
+func (s *Service) CompleteTask(listID, taskID string) error {
+	task, err := s.svc.Tasks.Get(listID, taskID).Do()
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	task.Status = "completed"
+	_, err = s.svc.Tasks.Update(listID, taskID, task).Do()
+	if err != nil {
+		return fmt.Errorf("failed to complete task: %w", err)
+	}
+	return nil
+}
+
+// UpdateTaskDueDate changes a task's due date in Google Tasks.
+func (s *Service) UpdateTaskDueDate(listID, taskID, newDueDate string) error {
+	task, err := s.svc.Tasks.Get(listID, taskID).Do()
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	if newDueDate != "" {
+		t, err := time.Parse("2006-01-02", newDueDate)
+		if err == nil {
+			task.Due = t.Format(time.RFC3339)
+		}
+	} else {
+		task.Due = ""
+	}
+
+	_, err = s.svc.Tasks.Update(listID, taskID, task).Do()
+	if err != nil {
+		return fmt.Errorf("failed to update task due date: %w", err)
 	}
 	return nil
 }
