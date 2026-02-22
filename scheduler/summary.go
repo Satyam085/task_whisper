@@ -107,10 +107,12 @@ func (s *Scheduler) GenerateSummary() string {
 
 	var todayTasks []string
 	var upcomingTasks []string
+	var noDueTasks []string
 
 	var eg errgroup.Group
 	catTodayTasks := make([][]string, len(categories))
 	catUpcomingTasks := make([][]string, len(categories))
+	catNoDueTasks := make([][]string, len(categories))
 
 	for i, c := range categories {
 		idx := i
@@ -150,6 +152,18 @@ func (s *Scheduler) GenerateSummary() string {
 				catUpcomingTasks[idx] = uTasks
 			}
 			
+			// Tasks without a due date
+			noDue, err := s.tasksSvc.GetTasksWithoutDueDate(listID)
+			if err != nil {
+				log.Printf("⚠️ Error fetching tasks without due date for %s: %v", cat.name, err)
+			} else {
+				var ndTasks []string
+				for _, t := range noDue {
+					ndTasks = append(ndTasks, fmt.Sprintf("  ☐ %s — %s", t.Title, cat.name))
+				}
+				catNoDueTasks[idx] = ndTasks
+			}
+
 			return nil
 		})
 	}
@@ -159,6 +173,7 @@ func (s *Scheduler) GenerateSummary() string {
 	for i := range categories {
 		todayTasks = append(todayTasks, catTodayTasks[i]...)
 		upcomingTasks = append(upcomingTasks, catUpcomingTasks[i]...)
+		noDueTasks = append(noDueTasks, catNoDueTasks[i]...)
 	}
 
 	if len(todayTasks) > 0 {
@@ -174,6 +189,14 @@ func (s *Scheduler) GenerateSummary() string {
 	if len(upcomingTasks) > 0 {
 		sb.WriteString("📆 COMING UP:\n")
 		for _, line := range upcomingTasks {
+			sb.WriteString(line + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(noDueTasks) > 0 {
+		sb.WriteString("📌 NO DUE DATE:\n")
+		for _, line := range noDueTasks {
 			sb.WriteString(line + "\n")
 		}
 		sb.WriteString("\n")

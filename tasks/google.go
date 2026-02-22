@@ -139,6 +139,31 @@ func (s *Service) GetUpcomingTasks(listID string, from time.Time, days int) ([]T
 	return result, nil
 }
 
+// GetTasksWithoutDueDate returns incomplete tasks from a list that have no due date set.
+func (s *Service) GetTasksWithoutDueDate(listID string) ([]TaskInfo, error) {
+	resp, err := s.svc.Tasks.List(listID).
+		ShowCompleted(false).
+		MaxResults(100).
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tasks: %w", err)
+	}
+
+	var result []TaskInfo
+	for _, t := range resp.Items {
+		// Only include tasks that are incomplete and have no due date
+		if t.Due == "" && t.Status == "needsAction" {
+			info := TaskInfo{
+				Title:  t.Title,
+				Notes:  t.Notes,
+				Status: t.Status,
+			}
+			result = append(result, info)
+		}
+	}
+	return result, nil
+}
+
 func loadToken(path string) (*oauth2.Token, error) {
 	f, err := os.Open(path)
 	if err != nil {
