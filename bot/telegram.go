@@ -15,8 +15,8 @@ import (
 	"taskwhisperer/tasks"
 )
 
-// Handler processes incoming Telegram messages via long polling.
-type Handler struct {
+// TelegramBot processes incoming Telegram messages via long polling.
+type TelegramBot struct {
 	bot    *tgbotapi.BotAPI
 	llm    *llm.Client
 	tasks  *tasks.Service
@@ -28,8 +28,8 @@ type Handler struct {
 	summaryGen func() string
 }
 
-// NewHandler creates a new Telegram bot handler with all dependencies.
-func NewHandler(cfg *config.Config, llmClient *llm.Client, taskSvc *tasks.Service, lists *tasks.ListMapping, st *store.Store) (*Handler, error) {
+// NewTelegramBot creates a new Telegram bot handler with all dependencies.
+func NewTelegramBot(cfg *config.Config, llmClient *llm.Client, taskSvc *tasks.Service, lists *tasks.ListMapping, st *store.Store) (*TelegramBot, error) {
 	bot, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create telegram bot: %w", err)
@@ -37,7 +37,7 @@ func NewHandler(cfg *config.Config, llmClient *llm.Client, taskSvc *tasks.Servic
 
 	log.Printf("🤖 Authorized on Telegram as @%s", bot.Self.UserName)
 
-	return &Handler{
+	return &TelegramBot{
 		bot:    bot,
 		llm:    llmClient,
 		tasks:  taskSvc,
@@ -49,13 +49,13 @@ func NewHandler(cfg *config.Config, llmClient *llm.Client, taskSvc *tasks.Servic
 
 // SetSummaryGenerator allows injecting the summary generation logic
 // without creating a circular dependency between bot and scheduler.
-func (h *Handler) SetSummaryGenerator(gen func() string) {
+func (h *TelegramBot) SetSummaryGenerator(gen func() string) {
 	h.summaryGen = gen
 }
 
 // StartPolling begins long-polling for Telegram updates.
 // This runs in the foreground and blocks until stopCh is closed.
-func (h *Handler) StartPolling(stopCh <-chan struct{}) {
+func (h *TelegramBot) StartPolling(stopCh <-chan struct{}) {
 	// Remove any existing webhook so polling works
 	removeWebhook := tgbotapi.DeleteWebhookConfig{DropPendingUpdates: false}
 	if _, err := h.bot.Request(removeWebhook); err != nil {
@@ -99,7 +99,7 @@ func (h *Handler) StartPolling(stopCh <-chan struct{}) {
 	}
 }
 
-func (h *Handler) processMessage(msg *tgbotapi.Message) {
+func (h *TelegramBot) processMessage(msg *tgbotapi.Message) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -176,8 +176,8 @@ Commands:
 	parsedTasks, err := h.llm.ParseTasks(ctx, msg.Text, h.cfg.Timezone)
 	if err != nil {
 		log.Printf("❌ LLM parse error: %v", err)
-		if strings.Contains(err.Error(), "openrouter") {
-			h.sendMessage(msg.Chat.ID, "❌ The AI request failed after 3 retries. Please try again later.")
+		if strings.Contains(err.Error(), "gemini") {
+			h.sendMessage(msg.Chat.ID, "❌ The AI request failed. Please try again later.")
 		} else {
 			h.sendMessage(msg.Chat.ID, "❌ Sorry, I couldn't understand that. Try rephrasing?")
 		}
@@ -265,7 +265,7 @@ Commands:
 	}
 }
 
-func (h *Handler) handleCallbackQuery(cq *tgbotapi.CallbackQuery) {
+func (h *TelegramBot) handleCallbackQuery(cq *tgbotapi.CallbackQuery) {
 	// Acknowledge callback query immediately
 	callback := tgbotapi.NewCallback(cq.ID, "")
 	if _, err := h.bot.Request(callback); err != nil {
@@ -336,12 +336,12 @@ func (h *Handler) handleCallbackQuery(cq *tgbotapi.CallbackQuery) {
 	}
 }
 
-// SendMessage sends a text message to a Telegram chat (exported for scheduler).
-func (h *Handler) SendMessage(chatID int64, text string) {
-	h.sendMessage(chatID, text)
+// SendNotification sends a notification text (exported for scheduler).
+func (h *TelegramBot) SendNotification(text string) {
+	h.sendMessage(h.cfg.ChatID, text)
 }
 
-func (h *Handler) sendMessage(chatID int64, text string) {
+func (h *TelegramBot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
 	if _, err := h.bot.Send(msg); err != nil {
@@ -349,7 +349,7 @@ func (h *Handler) sendMessage(chatID int64, text string) {
 	}
 }
 
-func (h *Handler) sendMessageWithKeyboard(chatID int64, text string, keyboard *tgbotapi.InlineKeyboardMarkup) {
+func (h *TelegramBot) sendMessageWithKeyboard(chatID int64, text string, keyboard *tgbotapi.InlineKeyboardMarkup) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
 	if keyboard != nil {

@@ -40,7 +40,7 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize LLM client
-	llmClient := llm.NewClient(cfg.OpenRouterAPIKey)
+	llmClient := llm.NewClient(cfg.GeminiAPIKey)
 	log.Println("✅ LLM client initialized")
 
 	// Initialize Google Tasks service
@@ -61,21 +61,34 @@ func main() {
 	defer taskStore.Close()
 	log.Println("✅ SQLite store initialized")
 
-	// Initialize Telegram bot handler
-	handler, err := bot.NewHandler(cfg, llmClient, tasksSvc, listMapping, taskStore)
-	if err != nil {
-		log.Fatalf("❌ Bot init error: %v", err)
+	var senders []scheduler.MessageSender
+
+	// Initialize Telegram bot handler conditionally
+	var tgBot *bot.TelegramBot
+	if cfg.TelegramToken != "" {
+		tgBot, err = bot.NewTelegramBot(cfg, llmClient, tasksSvc, listMapping, taskStore)
+		if err != nil {
+			log.Fatalf("❌ Telegram Bot init error: %v", err)
+		}
+		senders = append(senders, tgBot)
+	}
+
+
+	if len(senders) == 0 {
+		log.Fatalf("❌ No bots configured! Please set either TELEGRAM_TOKEN or Google Chat settings in config.")
 	}
 
 	// Start daily summary and reminders scheduler
-	sched := scheduler.NewScheduler(tasksSvc, listMapping, handler, taskStore, cfg)
+	sched := scheduler.NewScheduler(tasksSvc, listMapping, senders, taskStore, cfg)
 	sched.Start()
 	log.Println("✅ Daily summary and reminders scheduler started")
 
-	// Wire up the summary generator to the bot handler for the /today command
-	handler.SetSummaryGenerator(func() string {
-		return sched.GenerateSummary()
-	})
+	// Wire up the summary generator to the bot handlers for the /today command
+	if tgBot != nil {
+		tgBot.SetSummaryGenerator(func() string {
+			return sched.GenerateSummary()
+		})
+	}
 
 	// Graceful shutdown via signal
 	stopCh := make(chan struct{})
@@ -87,9 +100,11 @@ func main() {
 		close(stopCh)
 	}()
 
-	// Start long-polling (blocks until stopCh is closed)
-	log.Println("🚀 TaskWhisperer started (polling mode)")
-	handler.StartPolling(stopCh)
+	log.Println("🚀 TaskWhisperer started")
+
+	if tgBot != nil {
+		tgBot.StartPolling(stopCh) // Blocking
+	}
 
 	log.Println("👋 TaskWhisperer stopped. Goodbye!")
 }

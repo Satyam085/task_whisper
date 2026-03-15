@@ -2,7 +2,7 @@
 
 ### *Whisper to Telegram. OpenRouter Listens. Google Tasks Obeys.*
 
-> A lean Go binary that turns your casual Telegram messages into perfectly structured Google Tasks — powered by OpenRouter free AI.
+> A lean Go binary that turns your casual Telegram messages into perfectly structured Google Tasks — powered by Google Gemini AI.
 
 ## Quick Start
 
@@ -11,7 +11,6 @@
 - Go 1.24+
 - Google Cloud project with **Google Tasks API** enabled
 - Telegram bot token from [@BotFather](https://t.me/BotFather)
-- OpenRouter API key from [OpenRouter](https://openrouter.ai/)
 
 ### 2. Google OAuth Setup
 
@@ -44,7 +43,7 @@ See the full [plan.md](plan.md) for Cloudflare Tunnel setup, systemd service con
 ## How It Works
 
 1. You send a casual message to your Telegram bot
-2. OpenRouter AI parses it into structured tasks with categories and due dates
+2. Google Gemini AI parses it into structured tasks with categories and due dates
 3. Tasks are inserted into the correct Google Tasks lists
 4. You get a clean confirmation reply
 5. Every morning at 8 AM, you get a daily summary
@@ -61,15 +60,15 @@ Bot: ✅ Added 2 tasks:
 
 ## Architecture
 
-```
-Telegram → Cloudflare Tunnel → Go webhook → OpenRouter AI → Google Tasks API
+```text
+Telegram → Webhook/Polling → Gemini AI → Google Tasks API
 ```
 
 ## Cost
 
 | Resource | Cost |
 |---|---|
-| OpenRouter openrouter/free | $0/mo |
+| Google Gemini AI | Free Tier |
 | Google Tasks API | $0/mo |
 | Telegram Bot API | $0/mo |
 | Cloudflare Tunnel | $0/mo |
@@ -77,4 +76,4 @@ Telegram → Cloudflare Tunnel → Go webhook → OpenRouter AI → Google Tasks
 
 ---
 
-*Built with Go • Powered by OpenRouter • Deployed with ❤️ and zero regrets*
+*Built with Go • Powered by Google Gemini • Deployed with ❤️ and zero regrets*

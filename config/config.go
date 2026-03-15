@@ -10,13 +10,14 @@ import (
 
 // Config holds all application configuration loaded from environment variables.
 type Config struct {
-	// Telegram
+	// Telegram (Optional)
 	TelegramToken string
 	AllowedUserID int64
 	ChatID        int64
 
-	// OpenRouter
-	OpenRouterAPIKey string
+
+	// Gemini
+	GeminiAPIKey string
 
 	// Google Tasks List IDs
 	GTListPersonal string
@@ -46,27 +47,26 @@ func Load() (*Config, error) {
 
 	cfg := &Config{}
 
-	// --- Required fields ---
+	// --- Optional Bot Configs ---
 	var err error
-
 	cfg.TelegramToken = os.Getenv("TELEGRAM_TOKEN")
-	if cfg.TelegramToken == "" {
-		return nil, fmt.Errorf("TELEGRAM_TOKEN is required")
+	if cfg.TelegramToken != "" {
+		cfg.AllowedUserID, err = parseInt64Env("ALLOWED_USER_ID")
+		if err != nil {
+			return nil, fmt.Errorf("ALLOWED_USER_ID is required when TELEGRAM_TOKEN is set: %w", err)
+		}
+
+		cfg.ChatID, err = parseInt64Env("CHAT_ID")
+		if err != nil {
+			return nil, fmt.Errorf("CHAT_ID is required when TELEGRAM_TOKEN is set: %w", err)
+		}
 	}
 
-	cfg.AllowedUserID, err = parseInt64Env("ALLOWED_USER_ID")
-	if err != nil {
-		return nil, fmt.Errorf("ALLOWED_USER_ID: %w", err)
-	}
 
-	cfg.ChatID, err = parseInt64Env("CHAT_ID")
-	if err != nil {
-		return nil, fmt.Errorf("CHAT_ID: %w", err)
-	}
-
-	cfg.OpenRouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
-	if cfg.OpenRouterAPIKey == "" {
-		return nil, fmt.Errorf("OPENROUTER_API_KEY is required")
+	// --- Required fields ---
+	cfg.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
+	if cfg.GeminiAPIKey == "" {
+		return nil, fmt.Errorf("GEMINI_API_KEY is required")
 	}
 
 	cfg.GTListPersonal = os.Getenv("GTASKS_LIST_PERSONAL")

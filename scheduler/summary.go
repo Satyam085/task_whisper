@@ -13,26 +13,26 @@ import (
 	"taskwhisperer/tasks"
 )
 
-// MessageSender is the interface for sending Telegram messages.
+// MessageSender is the interface for sending notifications.
 type MessageSender interface {
-	SendMessage(chatID int64, text string)
+	SendNotification(text string)
 }
 
 // Scheduler handles the daily summary and timezone-aware reminders.
 type Scheduler struct {
 	tasksSvc *tasks.Service
 	lists    *tasks.ListMapping
-	sender   MessageSender
+	senders  []MessageSender
 	store    *store.Store
 	cfg      *config.Config
 }
 
 // NewScheduler creates a new daily summary and reminders scheduler.
-func NewScheduler(tasksSvc *tasks.Service, lists *tasks.ListMapping, sender MessageSender, st *store.Store, cfg *config.Config) *Scheduler {
+func NewScheduler(tasksSvc *tasks.Service, lists *tasks.ListMapping, senders []MessageSender, st *store.Store, cfg *config.Config) *Scheduler {
 	return &Scheduler{
 		tasksSvc: tasksSvc,
 		lists:    lists,
-		sender:   sender,
+		senders:  senders,
 		store:    st,
 		cfg:      cfg,
 	}
@@ -81,7 +81,9 @@ func (s *Scheduler) checkReminders() {
 	
 	for _, t := range dueTasks {
 		msg := fmt.Sprintf("⏰ *Reminder*: %s\n_Category: %s_", t.Title, tasks.CategoryName(t.Category))
-		s.sender.SendMessage(s.cfg.ChatID, msg)
+		for _, sender := range s.senders {
+			sender.SendNotification(msg)
+		}
 		_ = s.store.MarkTaskReminded(t.ID)
 		log.Printf("⏰ Sent timezone-aware reminder for task: %q", t.Title)
 	}
@@ -114,7 +116,9 @@ func (s *Scheduler) nextSummaryTime() time.Time {
 
 func (s *Scheduler) sendDailySummary() {
 	text := s.GenerateSummary()
-	s.sender.SendMessage(s.cfg.ChatID, text)
+	for _, sender := range s.senders {
+		sender.SendNotification(text)
+	}
 	log.Println("✅ Daily summary sent")
 }
 
