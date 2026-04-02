@@ -115,23 +115,21 @@ func (h *TelegramBot) processMessage(msg *tgbotapi.Message) {
 	if msg.IsCommand() {
 		switch msg.Command() {
 		case "start", "help":
-			helpText := `*TaskWhisperer*
-
-Just message me naturally:
-• "buy milk tomorrow" → creates a task
-• "done with the milk" → completes the task
-• "change milk to friday" → edits the task
-• "snooze all shopping to monday" → bulk operation
-
-*Commands:*
-/today - Daily summary
-/weekly - Weekly rollup
-/stats - Your streak and stats
-/list <category> - Show tasks in a category
-/config - Customize your digest
-/snooze <category> <date> - Bulk snooze
-/complete overdue|<category> - Bulk complete
-/help - Show this message`
+			helpText := "*TaskWhisperer*\n\n" +
+				"Just message me naturally:\n" +
+				"• \"buy milk tomorrow\" — creates a task\n" +
+				"• \"done with the milk\" — completes it\n" +
+				"• \"change milk to friday\" — edits it\n" +
+				"• \"snooze all shopping to monday\" — bulk op\n\n" +
+				"*Commands:*\n" +
+				"/today — Daily summary\n" +
+				"/weekly — Weekly rollup\n" +
+				"/stats — Your streak and stats\n" +
+				"/list `category` — Show tasks in a category\n" +
+				"/config — Customize your digest\n" +
+				"/snooze `category` `date` — Bulk snooze\n" +
+				"/complete `overdue` or `category` — Bulk complete\n" +
+				"/help — Show this message"
 			h.sendMessage(msg.Chat.ID, helpText)
 			return
 		case "today":
