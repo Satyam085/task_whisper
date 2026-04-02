@@ -19,6 +19,11 @@ func NewListMapping(cfg *config.Config) *ListMapping {
 	}
 }
 
+// AllCategories returns all supported category keys.
+func (m *ListMapping) AllCategories() []string {
+	return []string{"personal", "office", "shopping", "others"}
+}
+
 // GetListID returns the Google Tasks list ID for a given category.
 // Falls back to "others" if the category is unknown.
 func (m *ListMapping) GetListID(category string) string {

@@ -67,9 +67,9 @@ func main() {
 }
 
 func getToken(config *oauth2.Config) *oauth2.Token {
-	// Try to load existing token first
-	if tok, err := loadExistingToken(tokenFile); err == nil {
-		fmt.Println("✅ Using existing token from", tokenFile)
+	// Try to load existing token first — only reuse if still valid
+	if tok, err := loadExistingToken(tokenFile); err == nil && tok.Valid() {
+		fmt.Println("✅ Using existing valid token from", tokenFile)
 		return tok
 	}
 

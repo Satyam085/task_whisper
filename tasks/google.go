@@ -207,6 +207,61 @@ func (s *Service) GetTasksWithoutDueDate(listID string) ([]TaskInfo, error) {
 	return result, nil
 }
 
+// GetOverdueTasks returns incomplete tasks from a list that are past their due date.
+func (s *Service) GetOverdueTasks(listID string, before time.Time) ([]TaskInfo, error) {
+	resp, err := s.svc.Tasks.List(listID).
+		DueMax(before.Format(time.RFC3339)).
+		ShowCompleted(false).
+		MaxResults(100).
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list overdue tasks: %w", err)
+	}
+
+	var result []TaskInfo
+	for _, t := range resp.Items {
+		info := TaskInfo{
+			Title:  t.Title,
+			Notes:  t.Notes,
+			Status: t.Status,
+		}
+		if t.Due != "" {
+			if due, err := time.Parse(time.RFC3339, t.Due); err == nil {
+				info.DueDate = due.Format("2006-01-02")
+			}
+		}
+		result = append(result, info)
+	}
+	return result, nil
+}
+
+// UpdateTask updates a task's title, notes, and/or due date. Empty strings are skipped.
+func (s *Service) UpdateTask(listID, taskID, title, notes, dueDate string) error {
+	task, err := s.svc.Tasks.Get(listID, taskID).Do()
+	if err != nil {
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	if title != "" {
+		task.Title = title
+	}
+	if notes != "" {
+		task.Notes = notes
+	}
+	if dueDate != "" {
+		t, err := time.Parse("2006-01-02", dueDate)
+		if err == nil {
+			task.Due = t.Format(time.RFC3339)
+		}
+	}
+
+	_, err = s.svc.Tasks.Update(listID, taskID, task).Do()
+	if err != nil {
+		return fmt.Errorf("failed to update task: %w", err)
+	}
+	return nil
+}
+
 func loadToken(path string) (*oauth2.Token, error) {
 	f, err := os.Open(path)
 	if err != nil {

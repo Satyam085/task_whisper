@@ -40,7 +40,11 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize LLM client
-	llmClient := llm.NewClient(cfg.GeminiAPIKey)
+	llmClient, err := llm.NewClient(ctx, cfg.GeminiAPIKey)
+	if err != nil {
+		log.Fatalf("❌ Gemini client init error: %v", err)
+	}
+	defer llmClient.Close()
 	log.Println("✅ LLM client initialized")
 
 	// Initialize Google Tasks service
@@ -87,6 +91,9 @@ func main() {
 	if tgBot != nil {
 		tgBot.SetSummaryGenerator(func() string {
 			return sched.GenerateSummary()
+		})
+		tgBot.SetWeeklySummaryGenerator(func() string {
+			return sched.GenerateWeeklySummary()
 		})
 	}
 

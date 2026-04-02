@@ -34,6 +34,11 @@ type Config struct {
 	Timezone        string
 	SummaryTime     string
 
+	// Overdue & Weekly
+	OverdueCheckInterval int    // minutes between overdue checks (default 60)
+	WeeklySummaryDay     string // day of week for weekly summary (default "Sunday")
+	WeeklySummaryTime    string // HH:MM for weekly summary (default "20:00")
+
 	// Optional
 	SQLitePath string
 	LogLevel   string
@@ -100,6 +105,14 @@ func Load() (*Config, error) {
 	}
 	cfg.Timezone = getEnvDefault("TIMEZONE", "Asia/Kolkata")
 	cfg.SummaryTime = getEnvDefault("SUMMARY_TIME", "08:00")
+	cfg.OverdueCheckInterval = 60
+	if val := os.Getenv("OVERDUE_CHECK_INTERVAL"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+			cfg.OverdueCheckInterval = n
+		}
+	}
+	cfg.WeeklySummaryDay = getEnvDefault("WEEKLY_SUMMARY_DAY", "Sunday")
+	cfg.WeeklySummaryTime = getEnvDefault("WEEKLY_SUMMARY_TIME", "20:00")
 	cfg.SQLitePath = getEnvDefault("SQLITE_PATH", "./tasks.db")
 	cfg.LogLevel = getEnvDefault("LOG_LEVEL", "info")
 
